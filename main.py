@@ -20,28 +20,25 @@ def download_tiktok_video(video_url, download_dir):
         shutil.move(video_file, video_path)
         print(f"Video moved to {video_path}")
         
-        return True
+        return video_path  # Return the path of the downloaded video for audio conversion
+    
     except Exception as e:
         print(f"An error occurred: {e}")
-        return False
+        return None
 
-def convert_to_audio(download_dir):
+def convert_to_audio(download_dir, video_path):
     try:
-        # Check if video exists in the specified directory
-        video_files = [f for f in os.listdir(download_dir) if f.endswith('.mp4')]
-        if not video_files:
-            print("No video found in the specified directory")
-            return False
-        
-        # Use the first video file found
-        full_video_path = os.path.join(download_dir, video_files[0])
-        
+        # Extract the video file name without extension
+        video_filename = os.path.basename(video_path)
+        video_name_without_ext = os.path.splitext(video_filename)[0]
+
         # Load the video
-        video = VideoFileClip(full_video_path)
+        video = VideoFileClip(video_path)
+        
+        # Create a unique audio path with the video name
+        audio_path = os.path.join(download_dir, f"{video_name_without_ext}.mp3")
         
         # Extract audio
-        audio_path = os.path.join(download_dir, 'audio.mp3')
-        # The extraction remains the same
         video.audio.write_audiofile(audio_path)
         
         # Close the video to free up resources
@@ -57,17 +54,19 @@ if __name__ == "__main__":
     # Set your download directory (absolute path)
     download_dir = r"C:\Users\Solomon\Python Projects\tiktok_downloader"
     
-    # Replace with the TikTok video URL you want to download
-    tiktok_url = "https://www.tiktok.com/@diego.php/video/7387213306492112133"
+    # Ask the user to input a TikTok URL
+    tiktok_url = input("Please enter the TikTok video URL: ").strip()
    
     # Ensure the download directory exists
     if not os.path.exists(download_dir):
         os.makedirs(download_dir)
     
-    # Download the video
-    if download_tiktok_video(tiktok_url, download_dir):
-        # Convert to audio
-        if convert_to_audio(download_dir):
+    # Download the video and get its path
+    video_path = download_tiktok_video(tiktok_url, download_dir)
+    
+    if video_path:
+        # Convert to audio using the video file name as the audio name
+        if convert_to_audio(download_dir, video_path):
             print("Audio conversion completed successfully.")
         else:
             print("Failed to convert video to audio.")
