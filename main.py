@@ -1,7 +1,7 @@
 import os
 import shutil
 import pyktok as pyk
-from moviepy.editor import VideoFileClip
+from moviepy import VideoFileClip
 import cloudinary
 import cloudinary.uploader
 from flask import Flask, request, jsonify
