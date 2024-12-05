@@ -1,72 +1,155 @@
-import pyktok as pyk
-from moviepy import VideoFileClip  # Simplified import from moviepy
 import os
 import shutil
+import pyktok as pyk
+from moviepy.editor import VideoFileClip
+import cloudinary
+import cloudinary.uploader
+from flask import Flask, request, jsonify
+from dotenv import load_dotenv
+import tempfile
+import firebase_admin
+from firebase_admin import credentials, firestore, auth
 
-def download_tiktok_video(video_url, download_dir):
+# Load environment variables
+load_dotenv()
+
+# Initialize Flask app
+app = Flask(__name__)
+
+# Initialize Firebase Admin SDK with environment variables
+cred = credentials.Certificate({
+    "type": os.getenv("FIREBASE_TYPE"),
+    "project_id": os.getenv("FIREBASE_PROJECT_ID"),
+    "private_key_id": os.getenv("FIREBASE_PRIVATE_KEY_ID"),
+    "private_key": os.getenv("FIREBASE_PRIVATE_KEY").replace("\\n", "\n"),  # Replace escape sequence for new lines
+    "client_email": os.getenv("FIREBASE_CLIENT_EMAIL"),
+    "client_id": os.getenv("FIREBASE_CLIENT_ID"),
+    "auth_uri": os.getenv("FIREBASE_AUTH_URI"),
+    "token_uri": os.getenv("FIREBASE_TOKEN_URI"),
+    "auth_provider_x509_cert_url": os.getenv("FIREBASE_AUTH_PROVIDER_X509_CERT_URL"),
+    "client_x509_cert_url": os.getenv("FIREBASE_CLIENT_X509_CERT_URL"),
+})
+firebase_admin.initialize_app(cred)
+
+# Initialize Firestore
+db = firestore.client()
+
+# Configure Cloudinary
+cloudinary.config(
+    cloud_name=os.getenv("CLOUD_NAME"),
+    api_key=os.getenv("API_KEY"),
+    api_secret=os.getenv("API_SECRET")
+)
+
+# Function to upload audio to Cloudinary
+def upload_audio_to_cloudinary(audio_path):
     try:
-        # Initialize Pyktok with the specified browser
-        pyk.specify_browser('firefox')
-       
-        # Download the video (without download_dir argument)
-        pyk.save_tiktok(video_url, save_video=True)
-        print("Video downloaded successfully")
-
-        # Move the downloaded video to the desired directory
-        video_file = [f for f in os.listdir() if f.endswith('.mp4')][0]
-        video_path = os.path.join(download_dir, video_file)
-
-        # Move video file to the target directory
-        shutil.move(video_file, video_path)
-        print(f"Video moved to {video_path}")
-        
-        return video_path  # Return the path of the downloaded video for audio conversion
-    
+        # Upload the audio to Cloudinary (auto-detect file type)
+        upload_result = cloudinary.uploader.upload(audio_path, resource_type="auto")
+        audio_url = upload_result['secure_url']
+        return audio_url
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"Error uploading audio: {e}")
         return None
 
-def convert_to_audio(download_dir, video_path):
+# Function to download and convert TikTok video to audio
+def download_and_convert_to_audio(video_url):
     try:
-        # Extract the video file name without extension
-        video_filename = os.path.basename(video_path)
-        video_name_without_ext = os.path.splitext(video_filename)[0]
-
-        # Load the video
-        video = VideoFileClip(video_path)
+        # Create a temporary directory for video and audio
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Initialize Pyktok with the specified browser
+            pyk.specify_browser('firefox')
+            
+            # Download the TikTok video
+            pyk.save_tiktok(video_url, save_video=True)
+            print("Video downloaded successfully")
+            
+            # Find the downloaded video file in the current directory
+            video_file = [f for f in os.listdir() if f.endswith('.mp4')][0]
+            video_path = os.path.join(temp_dir, video_file)
+            
+            # Move the video to the temporary directory
+            shutil.move(video_file, video_path)
+            print(f"Video moved to {video_path}")
+            
+            # Load the video with moviepy
+            video = VideoFileClip(video_path)
+            
+            # Create the audio file path
+            audio_path = os.path.join(temp_dir, f"{os.path.splitext(video_file)[0]}.mp3")
+            
+            # Extract audio and save it as an MP3 file
+            video.audio.write_audiofile(audio_path)
+            video.close()
+            
+            print(f"Audio extracted to {audio_path}")
+            
+            # Get audio duration
+            audio_duration = video.audio.duration  # Duration in seconds
+            audio_title = os.path.splitext(video_file)[0]  # Title from the video name
+            
+            return audio_path, audio_duration, audio_title, video_url
         
-        # Create a unique audio path with the video name
-        audio_path = os.path.join(download_dir, f"{video_name_without_ext}.mp3")
-        
-        # Extract audio
-        video.audio.write_audiofile(audio_path)
-        
-        # Close the video to free up resources
-        video.close()
-        
-        print(f"Audio extracted to {audio_path}")
-        return True
     except Exception as e:
-        print(f"Audio conversion error: {e}")
-        return False
+        print(f"Error in downloading or converting video: {e}")
+        return None, None, None, None
+
+# Function to verify Firebase token and get user ID
+def get_user_id_from_token(token):
+    try:
+        # Verify the token using Firebase Admin SDK
+        decoded_token = auth.verify_id_token(token)
+        return decoded_token['uid']  # Extract the user ID (UID)
+    except Exception as e:
+        print(f"Error verifying token: {e}")
+        return None
+
+# API endpoint to convert TikTok video and upload audio to Cloudinary
+@app.route("/convert", methods=["POST"])
+def convert_and_upload():
+    # Get Firebase token from request headers
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({"error": "Authorization token missing"}), 400
+    token = token.split(' ')[1]  # Extract token from "Bearer token"
+
+    # Get user ID from the Firebase token
+    user_id = get_user_id_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Invalid token or user not found"}), 401
+    
+    # Check if URL is provided in the request
+    if 'url' not in request.json:
+        return jsonify({"error": "No URL provided"}), 400
+
+    video_url = request.json['url']
+
+    # Download and convert the video to audio
+    audio_file_path, audio_duration, audio_title, video_url = download_and_convert_to_audio(video_url)
+    
+    if not audio_file_path:
+        return jsonify({"error": "Audio conversion failed"}), 500
+    
+    # Upload the audio to Cloudinary
+    audio_url = upload_audio_to_cloudinary(audio_file_path)
+    
+    if audio_url:
+        # Store audio data in Firebase Firestore
+        audio_data = {
+            "audio_duration": audio_duration,  # Duration in seconds
+            "audio_title": audio_title,
+            "audio_url": audio_url,
+            "converted_at": firestore.SERVER_TIMESTAMP,
+            "user_id": user_id,  # Store user_id automatically from Firebase token
+            "video_url": video_url  # Store the original TikTok video URL
+        }
+        
+        # Save the audio data to Firestore
+        db.collection('audio_files').add(audio_data)
+        
+        return jsonify({"audio_url": audio_url, "audio_title": audio_title, "audio_duration": audio_duration}), 200
+    else:
+        return jsonify({"error": "Audio upload to Cloudinary failed"}), 500
 
 if __name__ == "__main__":
-    # Set your download directory (absolute path)
-    download_dir = r"C:\Users\Solomon\Python Projects\tiktok_downloader"
-    
-    # Ask the user to input a TikTok URL
-    tiktok_url = input("Please enter the TikTok video URL: ").strip()
-   
-    # Ensure the download directory exists
-    if not os.path.exists(download_dir):
-        os.makedirs(download_dir)
-    
-    # Download the video and get its path
-    video_path = download_tiktok_video(tiktok_url, download_dir)
-    
-    if video_path:
-        # Convert to audio using the video file name as the audio name
-        if convert_to_audio(download_dir, video_path):
-            print("Audio conversion completed successfully.")
-        else:
-            print("Failed to convert video to audio.")
+    app.run(debug=True)
