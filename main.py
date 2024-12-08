@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import tempfile
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
+from flask_cors import CORS
 
 # Load environment variables
 load_dotenv()
@@ -16,6 +17,7 @@ load_dotenv()
 # Initialize Flask app
 app = Flask(__name__)
 
+CORS(app)  # Allow CORS for all routes
 # Initialize Firebase Admin SDK with environment variables
 cred = credentials.Certificate({
     "type": os.getenv("FIREBASE_TYPE"),
@@ -52,46 +54,56 @@ def upload_audio_to_cloudinary(audio_path):
         print(f"Error uploading audio: {e}")
         return None
 
-# Function to download and convert TikTok video to audio
 def download_and_convert_to_audio(video_url):
     try:
-        # Create a temporary directory for video and audio
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Initialize Pyktok with the specified browser
-            pyk.specify_browser('firefox')
-            
-            # Download the TikTok video
-            pyk.save_tiktok(video_url, save_video=True)
-            print("Video downloaded successfully")
-            
-            # Find the downloaded video file in the current directory
-            video_file = [f for f in os.listdir() if f.endswith('.mp4')][0]
-            video_path = os.path.join(temp_dir, video_file)
-            
-            # Move the video to the temporary directory
-            shutil.move(video_file, video_path)
-            print(f"Video moved to {video_path}")
-            
-            # Load the video with moviepy
-            video = VideoFileClip(video_path)
-            
-            # Create the audio file path
-            audio_path = os.path.join(temp_dir, f"{os.path.splitext(video_file)[0]}.mp3")
-            
-            # Extract audio and save it as an MP3 file
-            video.audio.write_audiofile(audio_path)
-            video.close()
-            
-            print(f"Audio extracted to {audio_path}")
-            
-            # Get audio duration
-            audio_duration = video.audio.duration  # Duration in seconds
-            audio_title = os.path.splitext(video_file)[0]  # Title from the video name
-            
-            return audio_path, audio_duration, audio_title, video_url
+        # Create a temporary directory in the current project
+        temp_dir = 'temp_downloads'
+        os.makedirs(temp_dir, exist_ok=True)
         
+        # Initialize Pyktok with the specified browser
+        pyk.specify_browser('firefox')
+        
+        # Download the TikTok video
+        pyk.save_tiktok(video_url, save_video=True)
+        print("Video downloaded successfully")
+        
+        # Find the downloaded video file in the current directory
+        video_files = [f for f in os.listdir() if f.endswith('.mp4')]
+        
+        if not video_files:
+            raise ValueError("No video file found after download")
+        
+        video_file = video_files[0]
+        video_path = os.path.join(temp_dir, video_file)
+        
+        # Move the video to the temp directory
+        shutil.move(video_file, video_path)
+        
+        # Load the video with moviepy
+        video = VideoFileClip(video_path)
+        
+        # Create the audio file path
+        audio_path = os.path.join(temp_dir, f"{os.path.splitext(video_file)[0]}.mp3")
+        
+        # Extract audio and save it as an MP3 file
+        video.audio.write_audiofile(audio_path)
+        
+        # Get audio duration
+        audio_duration = video.duration
+        audio_title = os.path.splitext(video_file)[0]
+        
+        # Close the video to free up resources
+        video.close()
+        
+        print(f"Audio extracted to {audio_path}")
+        print(f"Audio duration: {audio_duration}")
+        
+        return audio_path, audio_duration, audio_title, video_url
+    
     except Exception as e:
         print(f"Error in downloading or converting video: {e}")
+        import traceback
+        traceback.print_exc()
         return None, None, None, None
 
 # Function to verify Firebase token and get user ID
@@ -107,6 +119,7 @@ def get_user_id_from_token(token):
 # API endpoint to convert TikTok video and upload audio to Cloudinary
 @app.route("/convert", methods=["POST"])
 def convert_and_upload():
+    print('initiated')
     # Get Firebase token from request headers
     token = request.headers.get('Authorization')
     if not token:
@@ -147,9 +160,12 @@ def convert_and_upload():
         # Save the audio data to Firestore
         db.collection('audio_files').add(audio_data)
         
+        if os.path.exists('temp_downloads'):
+            shutil.rmtree('temp_downloads')
+        
         return jsonify({"audio_url": audio_url, "audio_title": audio_title, "audio_duration": audio_duration}), 200
     else:
         return jsonify({"error": "Audio upload to Cloudinary failed"}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)  # Bind to all available IPs
