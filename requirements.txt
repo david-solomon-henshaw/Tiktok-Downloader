@@ -65,7 +65,7 @@ pyasn1_modules==0.4.1
 pycparser==2.22
 pycryptodomex==3.21.0
 pydeck==0.9.1
-pyee==11.0.1
+pyee
 Pygments==2.18.0
 PyJWT==2.10.1
 pyktok==0.0.30
