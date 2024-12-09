@@ -61,7 +61,7 @@ def download_and_convert_to_audio(video_url):
         os.makedirs(temp_dir, exist_ok=True)
         
         # Initialize Pyktok with the specified browser
-        pyk.specify_browser('firefox')
+        # pyk.specify_browser('firefox'
         
         # Download the TikTok video
         pyk.save_tiktok(video_url, save_video=True)
