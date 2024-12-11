@@ -55,7 +55,7 @@ PyJWT==2.10.1
 pyparsing==3.2.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
-PyTok==1.0.0
+pyktok==0.0.30
 pytz==2024.2
 referencing==0.35.1
 requests==2.32.3
