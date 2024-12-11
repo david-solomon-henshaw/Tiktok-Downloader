@@ -16,7 +16,6 @@ google-crc32c==1.6.0
 google-resumable-media==2.7.2
 googleapis-common-protos==1.66.0
 greenlet
-greenlet==3.0.0
 grpcio==1.68.1
 gunicorn==23.0.0
 h11==0.14.0
