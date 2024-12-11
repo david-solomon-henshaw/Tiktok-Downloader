@@ -15,6 +15,7 @@ gitdb==4.0.11
 google-crc32c==1.6.0
 google-resumable-media==2.7.2
 googleapis-common-protos==1.66.0
+greenlet
 greenlet==3.0.0
 grpcio==1.68.1
 gunicorn==23.0.0
@@ -30,6 +31,7 @@ lz4==4.3.3
 markdown-it-py==3.0.0
 MarkupSafe==3.0.2
 mdurl==0.1.2
+moviepy==2.1.1
 msgpack==1.1.0
 mutagen==1.47.0
 narwhals==1.15.2
@@ -38,7 +40,7 @@ opencv-python-headless==4.10.0.84
 packaging==24.2
 pandas==2.2.3
 pillow==10.4.0
-playwright==1.39.0
+playwright==1.37.0
 proglog==0.1.10
 proto-plus==1.25.0
 protobuf==5.29.0
@@ -48,7 +50,7 @@ pyasn1_modules==0.4.1
 pycparser==2.22
 pycryptodomex==3.21.0
 pydeck==0.9.1
-pyee==11.0.1
+pyee==9.0.4
 Pygments==2.18.0
 PyJWT==2.10.1
 pyparsing==3.2.0
