@@ -10,7 +10,9 @@ import tempfile
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 from flask_cors import CORS
+import cv2
 
+print(cv2.__version__)
 # Load environment variables
 load_dotenv()
 
@@ -43,6 +45,37 @@ cloudinary.config(
     api_secret=os.getenv("API_SECRET")
 )
 
+# Function to extract frame and upload it
+def extract_and_upload_frame(video_path, temp_dir):
+    try:
+        # Open the video file
+        video = cv2.VideoCapture(video_path)
+        
+        # Read the first frame (first few seconds)
+        success, frame = video.read()
+        
+        if not success:
+            print("Could not extract frame from video")
+            return None
+        
+        # Generate a unique filename for the frame
+        frame_filename = os.path.join(temp_dir, f"video_frame_{os.path.basename(video_path)}.jpg")
+        
+        # Save the frame as an image
+        cv2.imwrite(frame_filename, frame)
+        
+        # Upload the frame to Cloudinary
+        frame_upload_result = cloudinary.uploader.upload(frame_filename, resource_type="image")
+        frame_url = frame_upload_result['secure_url']
+        
+        # Close the video capture
+        video.release()
+        
+        return frame_url
+    except Exception as e:
+        print(f"Error extracting and uploading frame: {e}")
+        return None
+
 # Function to upload audio to Cloudinary
 def upload_audio_to_cloudinary(audio_path):
     try:
@@ -61,7 +94,7 @@ def download_and_convert_to_audio(video_url):
         os.makedirs(temp_dir, exist_ok=True)
         
         # Initialize Pyktok with the specified browser
-        pyk.specify_browser('firefox')
+       # pyk.specify_browser('firefox')
         
         # Download the TikTok video
         pyk.save_tiktok(video_url, save_video=True)
@@ -98,7 +131,7 @@ def download_and_convert_to_audio(video_url):
         print(f"Audio extracted to {audio_path}")
         print(f"Audio duration: {audio_duration}")
         
-        return audio_path, audio_duration, audio_title, video_url
+        return audio_path, audio_duration, audio_title, video_url, video_path
     
     except Exception as e:
         print(f"Error in downloading or converting video: {e}")
@@ -137,14 +170,19 @@ def convert_and_upload():
 
     video_url = request.json['url']
 
-    # Download and convert the video to audio
-    audio_file_path, audio_duration, audio_title, video_url = download_and_convert_to_audio(video_url)
+     # Modify the unpacking to include video_path
+    audio_file_path, audio_duration, audio_title, video_url, video_path = download_and_convert_to_audio(video_url)
+    
     
     if not audio_file_path:
         return jsonify({"error": "Audio conversion failed"}), 500
     
     # Upload the audio to Cloudinary
     audio_url = upload_audio_to_cloudinary(audio_file_path)
+
+     # Extract and upload frame
+    frame_url = extract_and_upload_frame(video_path, 'temp_downloads')
+    
     
     if audio_url:
         # Store audio data in Firebase Firestore
@@ -152,6 +190,7 @@ def convert_and_upload():
             "audio_duration": audio_duration,  # Duration in seconds
             "audio_title": audio_title,
             "audio_url": audio_url,
+            "frame_url": frame_url,  # Add frame URL to the document
             "converted_at": firestore.SERVER_TIMESTAMP,
             "user_id": user_id,  # Store user_id automatically from Firebase token
             "video_url": video_url  # Store the original TikTok video URL
@@ -163,7 +202,12 @@ def convert_and_upload():
         if os.path.exists('temp_downloads'):
             shutil.rmtree('temp_downloads')
         
-        return jsonify({"audio_url": audio_url, "audio_title": audio_title, "audio_duration": audio_duration}), 200
+        return jsonify({
+            "audio_url": audio_url, 
+            "audio_title": audio_title, 
+            "audio_duration": audio_duration,
+            "frame_url": frame_url
+        }), 200
     else:
         return jsonify({"error": "Audio upload to Cloudinary failed"}), 500
 
