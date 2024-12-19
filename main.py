@@ -149,6 +149,83 @@ def get_user_id_from_token(token):
         print(f"Error verifying token: {e}")
         return None
 
+# API Addition (in Flask)
+@app.route("/convert/manual", methods=["POST"])
+def convert_manual():
+    # Get Firebase token from request headers
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({"error": "Authorization token missing"}), 400
+    token = token.split(' ')[1]
+
+    user_id = get_user_id_from_token(token)
+    if not user_id:
+        return jsonify({"error": "Invalid token or user not found"}), 401
+    
+    if 'video' not in request.files:
+        return jsonify({"error": "No video file provided"}), 400
+
+    video_file = request.files['video']
+    
+    try:
+        # Create temp directory
+        temp_dir = 'temp_manual'
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # Save uploaded video temporarily
+        video_path = os.path.join(temp_dir, secure_filename(video_file.filename))
+        video_file.save(video_path)
+        
+        # Load video with moviepy
+        video = VideoFileClip(video_path)
+        
+        # Extract audio
+        audio_path = os.path.join(temp_dir, f"{os.path.splitext(video_file.filename)[0]}.mp3")
+        video.audio.write_audiofile(audio_path)
+        
+        # Get metadata
+        audio_duration = video.duration
+        audio_title = os.path.splitext(video_file.filename)[0]
+        
+        # Extract frame
+        frame_url = extract_and_upload_frame(video_path, temp_dir)
+        
+        # Upload audio to Cloudinary
+        audio_url = upload_audio_to_cloudinary(audio_path)
+        
+        if audio_url:
+            # Store in Firestore
+            audio_data = {
+                "audio_duration": audio_duration,
+                "audio_title": audio_title,
+                "audio_url": audio_url,
+                "frame_url": frame_url,
+                "converted_at": firestore.SERVER_TIMESTAMP,
+                "user_id": user_id,
+                "source": "manual_upload"
+            }
+            
+            db.collection('audio_files').add(audio_data)
+            
+            # Cleanup
+            video.close()
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            
+            return jsonify({
+                "audio_url": audio_url,
+                "audio_title": audio_title,
+                "audio_duration": audio_duration,
+                "frame_url": frame_url
+            }), 200
+            
+    except Exception as e:
+        print(f"Error in manual conversion: {e}")
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        return jsonify({"error": str(e)}), 500
+
+
 # API endpoint to convert TikTok video and upload audio to Cloudinary
 @app.route("/convert", methods=["POST"])
 def convert_and_upload():
