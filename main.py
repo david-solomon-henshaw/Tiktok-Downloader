@@ -11,6 +11,8 @@ import firebase_admin
 from firebase_admin import credentials, firestore, auth
 from flask_cors import CORS
 import cv2
+from werkzeug.utils import secure_filename
+
 
 print(cv2.__version__)
 # Load environment variables
